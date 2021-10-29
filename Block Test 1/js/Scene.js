@@ -1,177 +1,115 @@
-import * as THREE from './../lib/Three.js';
-import { OrbitControls } from './../lib/OrbitControls.js';
-import { AmmoPhysics } from './../lib/AmmoPhysics.js';
-import Stats from './../lib/stats.module.js';
-import {GLTFLoader} from './../lib/GLTFLoader.js';
+import * as THREE from "../lib/Three.js";
+import { OrbitControls } from "../lib/OrbitControls.js";
+import { GLTFLoader } from "../lib/GLTFLoader.js";
 
+import { OimoPhysics } from '../lib/Oimo.min.js';
 
-let camera, scene, renderer, stats;
-let physics, position;
-
-let boxes, spheres;
-
-init();
+var width, height;
+var scene, renderer, camera, mesh, mixer;
+var model3D = null;
+var physics, position;
 
 async function init() {
-
-    physics = await AmmoPhysics();
+    const container = document.getElementById("container");
+    width = window.innerWidth;
+    height = window.innerHeight;
+    
+    physics = await OimoPhysics();
     position = new THREE.Vector3();
-
-    //
-
-    camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
-    camera.position.set(- 1, 1.5, 2);
-    camera.lookAt(0, 0.5, 0);
-
+    //set camera
+    camera = new THREE.PerspectiveCamera(45, width / height, 1, 1000000);
+    camera.position.set(0, 5000, 0);
+    //clear scene
     scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x666666);
+    scene.background = null;
 
-    const hemiLight = new THREE.HemisphereLight();
-    hemiLight.intensity = 0.35;
+    //add light
+    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444);
+    hemiLight.position.set(0, 200, 0);
     scene.add(hemiLight);
 
-    const dirLight = new THREE.DirectionalLight();
-    dirLight.position.set(5, 5, 5);
-    dirLight.castShadow = true;
-    dirLight.shadow.camera.zoom = 2;
-    scene.add(dirLight);
+    const directionalLight = new THREE.DirectionalLight(0xffffff);
+    directionalLight.position.set(0, 200, 100);
+    directionalLight.castShadow = true;
+    directionalLight.shadow.camera.top = 180;
+    directionalLight.shadow.camera.bottom = - 100;
+    directionalLight.shadow.camera.left = - 120;
+    directionalLight.shadow.camera.right = 120;
+    scene.add(directionalLight);
 
-    const floor = new THREE.Mesh(
-        new THREE.BoxGeometry(10, 5, 10),
-        new THREE.ShadowMaterial({ color: 0x111111 })
-    );
-    floor.position.y = - 2.5;
-    floor.receiveShadow = true;
-    scene.add(floor);
-    physics.addMesh(floor);
+    //add ground
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(2000, 2000), new THREE.MeshPhongMaterial({ color: 0x999999, depthWrite: false }));
+    ground.rotation.x = - Math.PI / 2;
+    ground.receiveShadow = true;
+    scene.add(ground);
+    physics.addMesh(ground);
 
-    //
+    const grid = new THREE.GridHelper(2000, 20, 0x000000, 0x000000);
+    grid.material.opacity = 0.2;
+    grid.material.transparent = true;
+    scene.add(grid);
 
-    const material = new THREE.MeshLambertMaterial();
-
-    const matrix = new THREE.Matrix4();
-    const color = new THREE.Color();
-
-    // Boxes
-
-    const geometryBox = new THREE.BoxGeometry(0.1, 0.1, 0.1);
-    boxes = new THREE.InstancedMesh(geometryBox, material, 100);
-    boxes.instanceMatrix.setUsage(THREE.DynamicDrawUsage); // will be updated every frame
-    boxes.castShadow = true;
-    boxes.receiveShadow = true;
-    scene.add(boxes);
-
-    for (let i = 0; i < boxes.count; i++) {
-
-        matrix.setPosition(Math.random() - 0.5, Math.random() * 2, Math.random() - 0.5);
-        boxes.setMatrixAt(i, matrix);
-        boxes.setColorAt(i, color.setHex(0xffffff * Math.random()));
-
-    }
-
-    physics.addMesh(boxes, 1);
-
-    // Spheres
-
-    const geometrySphere = new THREE.IcosahedronGeometry(0.075, 3);
-    spheres = new THREE.InstancedMesh(geometrySphere, material, 100);
-    spheres.instanceMatrix.setUsage(THREE.DynamicDrawUsage); // will be updated every frame
-    spheres.castShadow = true;
-    spheres.receiveShadow = true;
-    scene.add(spheres);
-
-    for (let i = 0; i < spheres.count; i++) {
-
-        matrix.setPosition(Math.random() - 0.5, Math.random() * 2, Math.random() - 0.5);
-        spheres.setMatrixAt(i, matrix);
-        spheres.setColorAt(i, color.setHex(0xffffff * Math.random()));
-
-    }
-
-    physics.addMesh(spheres, 1);
-
-    //
-
-    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setClearColor(0x000000, 0);
     renderer.setPixelRatio(window.devicePixelRatio);
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.shadowMap.enabled = true;
+    renderer.setSize(container.clientWidth, container.clientHeight);
     renderer.outputEncoding = THREE.sRGBEncoding;
-    document.body.appendChild(renderer.domElement);
-
-    stats = new Stats();
-    document.body.appendChild(stats.dom);
-
-    //
+    renderer.shadowMap.enabled = true;
+    container.appendChild(renderer.domElement);
 
     const controls = new OrbitControls(camera, renderer.domElement);
-    controls.target.y = 0.5;
+    controls.enablePan = true;
+    controls.enableZoom = true;
+    controls.target.set(0, 1, 0);
     controls.update();
 
+    renderer.setSize(container.clientWidth, container.clientHeight);
+    camera.aspect = container.clientWidth / container.clientHeight;
+    camera.updateProjectionMatrix();
+
+    function animate() {
+        // Render loop
+        requestAnimationFrame(animate);
+        renderer.render(scene, camera);
+    }
+
+    loadModel(1);
     animate();
-
 }
-
-function animate() {
-
-    requestAnimationFrame(animate);
-
-    //
-
-    let index = Math.floor(Math.random() * boxes.count);
-
-    position.set(0, Math.random() + 1, 0);
-    physics.setMeshPosition(boxes, position, index);
-
-    //
-
-    index = Math.floor(Math.random() * spheres.count);
-
-    position.set(0, Math.random() + 1, 0);
-    physics.setMeshPosition(spheres, position, index);
-
-    renderer.render(scene, camera);
-
-    stats.update();
-
-}
-
-//loadmodel
-loadModel(1);
-
+init();
 function loadModel(idModel) {
     const loader1 = new GLTFLoader();
     if (model3D != null) {
         scene.remove(model3D);
     }
-    jsonString = JSON.stringify(idModel);
-    var jsonString = JSON.stringify(model1);
-    if (idModel == 1 || idModel == 4 || idModel == 7) {
-    } else if (idModel == 2 || idModel == 5) {
-        jsonString = JSON.stringify(model2);
-    } else if (idModel == 3 || idModel == 6) {
-        jsonString = JSON.stringify(model3);
-    }
-    loader1.parse(
-        jsonString,
-        "",
-        function (gltf) {
-            model3D = gltf.scene;
-            if (window.innerHeight > window.innerWidth) {
-                model3D.position.set(0, 10, 0);
-            } else {
-                model3D.position.set(1, 0.5, 0);
+    console.log(objList);
+    objList.map((obj) => {
+        var jsonString = JSON.stringify(obj.data);
+        loader1.parse(
+            jsonString,
+            "",
+            function (gltf) {
+                model3D = gltf.scene;
+                model3D.scale.set(100, 100, 100);
+                model3D.position.set(Math.random() - 0.5, 100, Math.random() - 0.5);
+                const material = new THREE.MeshPhongMaterial({ color: 0x00ff00 });
+                mesh = new THREE.Mesh(model3D, material);
+                mesh.position.y = 25;
+                //đổ bóng
+                model3D.castShadow = true;
+                model3D.traverse(function (object) {
+                    if (object.isMesh) object.castShadow = true;
+                });
+                scene.add(model3D);
+                physics.addMesh( model3D, 1 );
+                mixer = new THREE.AnimationMixer(model3D);
+                // mixer.clipAction(gltf.animations[0]).play()
+            },
+            undefined,
+            function (e) {
+                console.error(e);
             }
-            model3D.scale.set(10, 10, 10);
-            model3D.castShadow = true;
-            scene.add(model3D);
-
-            mixer = new THREE.AnimationMixer(model3D);
-            renderer.render(scene, camera);
-        },
-        undefined,
-        function (e) {
-            console.error(e);
-        }
-    );
+        );
+    })
 }
+// https://github.com/mrdoob/three.js/blob/master/examples/physics_oimo_instancing.html
