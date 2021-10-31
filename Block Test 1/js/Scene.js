@@ -1,27 +1,34 @@
 import * as THREE from "../lib/Three.js";
 import { OrbitControls } from "../lib/OrbitControls.js";
 import { GLTFLoader } from "../lib/GLTFLoader.js";
-
-import { OimoPhysics } from '../lib/Oimo.min.js';
-
+import "./../lib/cannon.js"
+import CannonDebugRenderer from "./../utils/CannonDebugRenderer.js";
+import * as CannonUtils from "./../utils/CannonUtils.js";
 var width, height;
-var scene, renderer, camera, mesh, mixer;
+var scene, renderer, camera, mesh;
 var model3D = null;
-var physics, position;
+var position;
+let monkeyMeshes = [];
+let monkeyBodies = [];
+let monkeyLoaded = false;
+var world;
 
-async function init() {
+function init() {
     const container = document.getElementById("container");
     width = window.innerWidth;
     height = window.innerHeight;
-    
-    physics = await OimoPhysics();
+    //clear scene
+    scene = new THREE.Scene();
+    scene.background = null;
+
+    world = new CANNON.World();
+    world.gravity.set(0, -9.82, 0);
+
+
     position = new THREE.Vector3();
     //set camera
     camera = new THREE.PerspectiveCamera(45, width / height, 1, 1000000);
     camera.position.set(0, 5000, 0);
-    //clear scene
-    scene = new THREE.Scene();
-    scene.background = null;
 
     //add light
     const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444);
@@ -42,7 +49,11 @@ async function init() {
     ground.rotation.x = - Math.PI / 2;
     ground.receiveShadow = true;
     scene.add(ground);
-    physics.addMesh(ground);
+    var groundShape = new CANNON.Plane();
+    var groundBody = new CANNON.Body({ mass: 0 });
+    groundBody.addShape(groundShape);
+    groundBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
+    world.addBody(groundBody);
 
     const grid = new THREE.GridHelper(2000, 20, 0x000000, 0x000000);
     grid.material.opacity = 0.2;
@@ -71,6 +82,22 @@ async function init() {
         // Render loop
         requestAnimationFrame(animate);
         renderer.render(scene, camera);
+        // Copy coordinates from Cannon.js to Three.js
+        if (monkeyLoaded) {
+            monkeyMeshes.forEach((m, i) => {
+                m.position.set(
+                    monkeyBodies[i].position.x,
+                    monkeyBodies[i].position.y,
+                    monkeyBodies[i].position.z
+                );
+                m.quaternion.set(
+                    monkeyBodies[i].quaternion.x,
+                    monkeyBodies[i].quaternion.y,
+                    monkeyBodies[i].quaternion.z,
+                    monkeyBodies[i].quaternion.w
+                );
+            });
+        }
     }
 
     loadModel(1);
@@ -89,21 +116,37 @@ function loadModel(idModel) {
             jsonString,
             "",
             function (gltf) {
+                let monkeyMesh;
+                let monkeyCollisionMesh;
                 model3D = gltf.scene;
                 model3D.scale.set(100, 100, 100);
                 model3D.position.set(Math.random() - 0.5, 100, Math.random() - 0.5);
-                const material = new THREE.MeshPhongMaterial({ color: 0x00ff00 });
-                mesh = new THREE.Mesh(model3D, material);
-                mesh.position.y = 25;
                 //đổ bóng
                 model3D.castShadow = true;
-                model3D.traverse(function (object) {
-                    if (object.isMesh) object.castShadow = true;
+                model3D.traverse(function (model) {
+                    if (model.isMesh) {
+                        model.castShadow = true;
+                    }
+                    monkeyMesh = model;
+                    monkeyCollisionMesh = model;
                 });
+                var monkeyMeshClone = monkeyMesh.clone();
+                monkeyMeshClone.position.x = Math.floor(Math.random() * 10) - 5;
+                monkeyMeshClone.position.z = Math.floor(Math.random() * 10) - 5;
+                monkeyMeshClone.position.y = 5 + 1;
+                scene.add(monkeyMeshClone);
+                monkeyMeshes.push(monkeyMeshClone);
+                console.log(monkeyCollisionMesh);
+                var monkeyShape = CannonUtils.CreateConvexPolyhedron(monkeyCollisionMesh.geometry);
+                var monkeyBody = new CANNON.Body({ mass: 1 });
+                monkeyBody.addShape(monkeyShape);
+                monkeyBody.position.x = monkeyMeshClone.position.x;
+                monkeyBody.position.y = monkeyMeshClone.position.y;
+                monkeyBody.position.z = monkeyMeshClone.position.z;
+                world.addBody(monkeyBody);
+                monkeyBodies.push(monkeyBody);
+                monkeyLoaded = true;
                 scene.add(model3D);
-                physics.addMesh( model3D, 1 );
-                mixer = new THREE.AnimationMixer(model3D);
-                // mixer.clipAction(gltf.animations[0]).play()
             },
             undefined,
             function (e) {
@@ -112,4 +155,4 @@ function loadModel(idModel) {
         );
     })
 }
-// https://github.com/mrdoob/three.js/blob/master/examples/physics_oimo_instancing.html
+// https://codesandbox.io/s/fcfz2?file=/src/client/client.ts
